@@ -1,0 +1,6 @@
+{
+  "name": "School Core Mali",
+  "description": "Solution SaaS de gestion scolaire tout-en-un pour les écoles au Mali : élèves, notes, assiduité et facturation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

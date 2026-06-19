@@ -1,0 +1,333 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Connectivity Test Rules - Move to top for priority
+    // ===============================================================
+    match /test/{docId} {
+      allow read: if true;
+    }
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(schoolId) {
+      return isAuthenticated() && request.auth.uid == schoolId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+             request.auth.token.email.lower() == "doloemmanuel97@gmail.com";
+    }
+    
+    function isTeacher(schoolId) {
+      return isAuthenticated() && 
+             request.auth.token.email != null &&
+             (
+               exists(/databases/$(database)/documents/schools/$(schoolId)/teachers/$(request.auth.uid)) ||
+               exists(/databases/$(database)/documents/schools/$(schoolId)/teachers/$(request.auth.token.email.lower())) ||
+               exists(/databases/$(database)/documents/schools/$(schoolId)/teachers/$(request.auth.token.email))
+             );
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+    
+    function isValidEmail(email) {
+      return email is string && email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    function isValidUrl(url) {
+      return url is string && (url.matches('^https?://.*') || url.matches('^data:image/.*'));
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidSchoolInfo(data) {
+      return data.keys().hasAll(['name', 'primaryColor']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.primaryColor is string && data.primaryColor.matches('^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$') &&
+             (!('email' in data) || isValidEmail(data.email)) &&
+             (!('logo' in data) || isValidUrl(data.logo));
+    }
+
+    function isValidStudent(data) {
+      return data.keys().hasAll(['id', 'name', 'class', 'dateAdded']) &&
+             data.id is string && data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.class is string && data.dateAdded is string &&
+             (!('parentEmail' in data) || isValidEmail(data.parentEmail)) &&
+             (!('documents' in data) || data.documents is list);
+    }
+
+    function isValidClass(data) {
+      return data.keys().hasAll(['id', 'name']) &&
+             data.id is string && data.name is string && data.name.size() > 0 && data.name.size() < 50;
+    }
+
+    function isValidGrade(data) {
+      return data.keys().hasAll(['id', 'studentId', 'subject', 'score']) &&
+             data.id is string && data.studentId is string &&
+             data.subject is string && data.score is number && data.score >= 0;
+    }
+
+    function isValidTeacher(data) {
+      return data.keys().hasAll(['id', 'name']) &&
+             data.id is string && data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             (!('email' in data) || isValidEmail(data.email)) &&
+             (!('userId' in data) || isValidId(data.userId));
+    }
+
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['id', 'studentId', 'amount', 'date']) &&
+             data.id is string && data.studentId is string &&
+             data.amount is number && data.amount >= 0 && data.date is string;
+    }
+
+    function isValidSMS(data) {
+      return data.keys().hasAll(['id', 'recipient', 'content']) &&
+             data.id is string && data.recipient is string && data.recipient.size() > 0 &&
+             data.content is string && data.content.size() > 0 && data.content.size() < 1000;
+    }
+
+    function isValidExpense(data) {
+      return data.keys().hasAll(['id', 'category', 'amount', 'date']) &&
+             data.id is string && data.category in ['Salaire', 'Loyer', 'Eau/Électricité', 'Fournitures', 'Autre'] &&
+             data.amount is number && data.amount >= 0 && data.date is string &&
+             (!('description' in data) || data.description is string);
+    }
+
+    function isValidSubscriptionRequest(data) {
+      return data.keys().hasAll(['schoolId', 'schoolName', 'schoolEmail', 'plan', 'method', 'status', 'date']) &&
+             data.schoolId is string &&
+             data.schoolName is string &&
+             isValidEmail(data.schoolEmail) &&
+             data.plan in ['free', 'premium', 'pro'] &&
+             data.method in ['orange', 'moov', 'wave'] &&
+             data.status in ['pending', 'confirmed', 'rejected'] &&
+             (!('proofUrl' in data) || isValidUrl(data.proofUrl)) &&
+             (!('amount' in data) || data.amount is number);
+    }
+
+    function isValidScheduleEntry(data) {
+      return data.keys().hasAll(['id', 'classId', 'teacherId', 'subject', 'day', 'startTime', 'endTime']) &&
+             data.id is string && data.classId is string && data.teacherId is string &&
+             data.subject is string && data.day in ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'] &&
+             data.startTime is string && data.endTime is string &&
+             (!('room' in data) || data.room is string);
+    }
+
+    function isValidBulletin(data) {
+      return data.keys().hasAll(['id', 'studentId', 'term']) &&
+             data.id is string && data.studentId is string && data.term is string &&
+             (!('average' in data) || data.average is number) &&
+             (!('rank' in data) || data.rank is string) &&
+             (!('comment' in data) || data.comment is string) &&
+             (!('date' in data) || data.date is string);
+    }
+
+    function isValidPreRegistration(data) {
+      return data.keys().hasAll(['id', 'studentName', 'parentName', 'parentPhone', 'status', 'date']) &&
+             data.id is string && data.studentName is string && data.studentName.size() > 0 &&
+             data.parentName is string && data.parentPhone is string &&
+             data.status in ['pending', 'contacted', 'accepted', 'rejected'] &&
+             data.date is string &&
+             (!('parentEmail' in data) || isValidEmail(data.parentEmail)) &&
+             (!('requestedClass' in data) || data.requestedClass is string);
+    }
+
+    function isValidPreRegistrationUpdate(incoming, current) {
+      return incoming.id == current.id &&
+             incoming.studentName == current.studentName &&
+             incoming.parentName == current.parentName &&
+             incoming.parentPhone == current.parentPhone &&
+             incoming.date == current.date &&
+             incoming.status in ['pending', 'contacted', 'accepted', 'rejected'] &&
+             (!('parentEmail' in incoming) || incoming.parentEmail == current.parentEmail) &&
+             (!('requestedClass' in incoming) || incoming.requestedClass == current.requestedClass);
+    }
+
+    function isValidAttendance(data) {
+      return data.keys().hasAll(['id', 'studentId', 'studentName', 'class', 'date', 'status']) &&
+             data.id is string && data.studentId is string && data.studentName is string &&
+             data.class is string && data.date is string &&
+             data.status in ['Présent', 'Absent', 'Retard', 'Justifié'];
+    }
+
+    function isValidExam(data) {
+      return data.keys().hasAll(['id', 'name', 'date', 'className', 'subject']) &&
+             data.id is string && data.name is string && data.date is string &&
+             data.className is string && data.subject is string &&
+             (!('type' in data) || data.type in ['Trimestriel', 'Annuel', 'Blanc', 'Concours']) &&
+             (!('startTime' in data) || data.startTime is string) &&
+             (!('endTime' in data) || data.endTime is string) &&
+             (!('room' in data) || data.room is string);
+    }
+
+    function isValidInventoryItem(data) {
+      return data.keys().hasAll(['id', 'name', 'category', 'quantity']) &&
+             data.id is string && data.name is string && 
+             data.category in ['Livre', 'Uniforme', 'Fourniture', 'Autre'] &&
+             data.quantity is number &&
+             (!('unitPrice' in data) || data.unitPrice is number) &&
+             (!('costPrice' in data) || data.costPrice is number) &&
+             (!('minStock' in data) || data.minStock is number);
+    }
+
+    function isValidInventoryTransaction(data) {
+      return data.keys().hasAll(['id', 'itemId', 'type', 'quantity', 'date']) &&
+             data.id is string && data.itemId is string && 
+             data.type in ['Achat', 'Vente', 'Prêt', 'Retour', 'Ajustement', 'Don'] &&
+             data.quantity is number &&
+             (!('studentId' in data) || data.studentId is string) &&
+             (!('notes' in data) || data.notes is string);
+    }
+
+    // ===============================================================
+    // Match Rules
+    // ===============================================================
+
+    match /schools/{schoolId} {
+      allow read: if (isAuthenticated() && isValidId(schoolId)) || isAdmin();
+      
+      match /config/info {
+        allow read: if true; // Public read for landing page
+        allow write: if isOwner(schoolId) && isValidSchoolInfo(incoming());
+      }
+      
+      match /students/{studentId} {
+        allow read: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+        allow create: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(studentId) && isValidStudent(incoming());
+        allow update: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(studentId) && isValidStudent(incoming());
+        allow delete: if isOwner(schoolId) || isAdmin();
+      }
+      
+      match /classes/{classId} {
+        allow read: if true; // Public read for landing page (list of programs)
+        allow create: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(classId) && isValidClass(incoming());
+        allow update: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(classId) && isValidClass(incoming());
+        allow delete: if isOwner(schoolId) || isAdmin();
+      }
+      
+      match /grades/{gradeId} {
+        allow read: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+        allow create: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(gradeId) && isValidGrade(incoming());
+        allow update: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(gradeId) && isValidGrade(incoming());
+        allow delete: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+      }
+      
+      match /teachers/{teacherId} {
+        allow read: if isAuthenticated();
+        allow create: if (isOwner(schoolId) && isValidId(teacherId) && isValidTeacher(incoming())) ||
+                      (isAuthenticated() && (teacherId == request.auth.uid || teacherId == request.auth.token.email.lower()) && incoming().email.lower() == request.auth.token.email.lower() && isValidTeacher(incoming()));
+        allow update: if isOwner(schoolId) && isValidId(teacherId) && isValidTeacher(incoming()) ||
+                      (isAuthenticated() && (resource == null || resource.data.email.lower() == request.auth.token.email.lower()) && isValidTeacher(incoming())) ||
+                      (isAuthenticated() && (teacherId == request.auth.uid || teacherId == request.auth.token.email.lower()) && incoming().email.lower() == request.auth.token.email.lower() && isValidTeacher(incoming()));
+        allow delete: if isOwner(schoolId) || isAdmin();
+      }
+      
+      match /transactions/{transactionId} {
+        allow read: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+        allow create: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(transactionId) && isValidTransaction(incoming());
+        allow update: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(transactionId) && isValidTransaction(incoming());
+        allow delete: if isAdmin(); // Seul l'admin peut supprimer des transactions financières
+      }
+
+      match /expenses/{expenseId} {
+        allow read: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+        allow create: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(expenseId) && isValidExpense(incoming());
+        allow update: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(expenseId) && isValidExpense(incoming());
+        allow delete: if isOwner(schoolId) || isAdmin();
+      }
+      
+      match /messages/{messageId} {
+        allow read: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+        allow create: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(messageId) && isValidSMS(incoming());
+        allow delete: if isAdmin();
+      }
+
+      match /subscription_requests/{requestId} {
+        allow read: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+        allow write: if (isOwner(schoolId) && isValidId(requestId) && isValidSubscriptionRequest(incoming())) || isAdmin() || (isTeacher(schoolId) && isValidId(requestId) && isValidSubscriptionRequest(incoming()));
+      }
+
+      match /schedule/{entryId} {
+        allow read: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+        allow create: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(entryId) && isValidScheduleEntry(incoming());
+        allow update: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(entryId) && isValidScheduleEntry(incoming());
+        allow delete: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+      }
+
+      match /bulletins/{bulletinId} {
+        allow read: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+        allow create: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(bulletinId) && isValidBulletin(incoming());
+        allow update: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(bulletinId) && isValidBulletin(incoming());
+        allow delete: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+      }
+
+      match /pre_registrations/{registerId} {
+        allow read: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+        allow create: if isValidId(registerId) && isValidPreRegistration(incoming());
+        allow update: if isOwner(schoolId) && (
+          (incoming().diff(existing()).affectedKeys().hasOnly(['status']) && incoming().status in ['pending', 'contacted', 'accepted', 'rejected']) ||
+          isValidPreRegistrationUpdate(incoming(), existing())
+        );
+        allow delete: if isOwner(schoolId) || isAdmin();
+      }
+
+      match /attendance/{attendanceId} {
+        allow read: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+        allow create: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(attendanceId) && isValidAttendance(incoming());
+        allow update: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(attendanceId) && isValidAttendance(incoming());
+        allow delete: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+      }
+
+      match /exams/{examId} {
+        allow get: if (isAuthenticated() && isValidId(schoolId) && (isOwner(schoolId) || isTeacher(schoolId))) || isAdmin();
+        allow list: if (isAuthenticated() && isValidId(schoolId) && (isOwner(schoolId) || isTeacher(schoolId))) || isAdmin();
+        allow create: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(examId) && isValidExam(incoming());
+        allow update: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(examId) && isValidExam(incoming());
+        allow delete: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+      }
+
+      match /inventory/{itemId} {
+        allow read: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+        allow create: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(itemId) && isValidInventoryItem(incoming());
+        allow update: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(itemId) && isValidInventoryItem(incoming());
+        allow delete: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+      }
+
+      match /inventory_transactions/{transactionId} {
+        allow read: if isOwner(schoolId) || isAdmin() || isTeacher(schoolId);
+        allow create: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(transactionId) && isValidInventoryTransaction(incoming());
+        allow update: if (isOwner(schoolId) || isTeacher(schoolId)) && isValidId(transactionId) && isValidInventoryTransaction(incoming());
+        allow delete: if isAdmin();
+      }
+    }
+    
+    // Global admin rules
+    match /{path=**}/subscription_requests/{requestId} {
+      allow read: if isAdmin();
+    }
+    
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

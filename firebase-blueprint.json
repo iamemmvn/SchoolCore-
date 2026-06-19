@@ -1,0 +1,341 @@
+{
+  "entities": {
+    "SchoolInfo": {
+      "title": "School Information",
+      "description": "Global settings for the school",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "director": { "type": "string" },
+        "logo": { "type": "string" },
+        "primaryColor": { "type": "string" }
+      },
+      "required": ["name", "primaryColor"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Student record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "class": { "type": "string" },
+        "dateAdded": { "type": "string" },
+        "parentName": { "type": "string" },
+        "parentPhone": { "type": "string" },
+        "parentEmail": { "type": "string" },
+        "documents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "url": { "type": "string" },
+              "category": { "type": "string" },
+              "dateAdded": { "type": "string" },
+              "size": { "type": "string" }
+            }
+          }
+        }
+      },
+      "required": ["id", "name", "class"]
+    },
+    "Class": {
+      "title": "Class",
+      "description": "School class",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "gradeLevel": { "type": "string" },
+        "subjects": { 
+          "type": "array",
+          "items": { "type": "object", "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "coefficient": { "type": "number" },
+            "category": { "type": "string" }
+          }}
+        }
+      },
+      "required": ["id", "name"]
+    },
+    "Grade": {
+      "title": "Grade",
+      "description": "Student grade",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "subject": { "type": "string" },
+        "score": { "type": "number" },
+        "maxScore": { "type": "number" },
+        "coefficient": { "type": "number" },
+        "date": { "type": "string" },
+        "term": { "type": "string" }
+      },
+      "required": ["id", "studentId", "subject", "score"]
+    },
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Teacher or Staff member",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "subject": { "type": "string" },
+        "contact": { "type": "string" },
+        "email": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial transaction",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "amount": { "type": "number" },
+        "method": { "type": "string" },
+        "date": { "type": "string" }
+      },
+      "required": ["id", "studentId", "amount", "date"]
+    },
+    "SMSMessage": {
+      "title": "SMS Message",
+      "description": "Sent SMS record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recipient": { "type": "string" },
+        "content": { "type": "string" },
+        "date": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "recipient", "content"]
+    },
+    "SubscriptionRequest": {
+      "title": "Manual Subscription Request",
+      "description": "A request for a subscription upgrade via manual payment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "schoolId": { "type": "string" },
+        "schoolName": { "type": "string" },
+        "schoolEmail": { "type": "string" },
+        "plan": { "type": "string", "enum": ["free", "premium", "pro"] },
+        "method": { "type": "string", "enum": ["orange", "moov", "wave"] },
+        "proofUrl": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "rejected"] },
+        "date": { "type": "string" }
+      },
+      "required": ["schoolId", "schoolName", "schoolEmail", "plan", "method", "status", "date"]
+    },
+    "ScheduleEntry": {
+      "title": "Schedule Entry",
+      "description": "A scheduled class session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "classId": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "subject": { "type": "string" },
+        "day": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "room": { "type": "string" }
+      },
+      "required": ["id", "classId", "teacherId", "subject", "day", "startTime", "endTime"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "School expense",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "category": { "type": "string", "enum": ["Salaire", "Loyer", "Eau/Électricité", "Fournitures", "Autre"] },
+        "amount": { "type": "number" },
+        "description": { "type": "string" },
+        "date": { "type": "string" }
+      },
+      "required": ["id", "category", "amount", "date"]
+    },
+    "Bulletin": {
+      "title": "Bulletin Summary",
+      "description": "Summary of student performance for a term",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "term": { "type": "string" },
+        "average": { "type": "number" },
+        "rank": { "type": "string" },
+        "comment": { "type": "string" },
+        "date": { "type": "string" }
+      },
+      "required": ["id", "studentId", "term"]
+    },
+    "PreRegistration": {
+      "title": "Pre-registration",
+      "description": "Public pre-registration request from a parent",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentName": { "type": "string" },
+        "parentName": { "type": "string" },
+        "parentPhone": { "type": "string" },
+        "parentEmail": { "type": "string" },
+        "requestedClass": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "contacted", "accepted", "rejected"] },
+        "date": { "type": "string" }
+      },
+      "required": ["id", "studentName", "parentName", "parentPhone", "status", "date"]
+    },
+    "AttendanceRecord": {
+      "title": "Attendance Record",
+      "description": "Daily attendance record for a student",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "class": { "type": "string" },
+        "date": { "type": "string" },
+        "status": { "type": "string", "enum": ["Present", "Absent", "Late", "Justified"] }
+      },
+      "required": ["id", "studentId", "studentName", "class", "date", "status"]
+    },
+    "Exam": {
+      "title": "Exam session",
+      "description": "Scheduled exam for a class",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "date": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "className": { "type": "string" },
+        "subject": { "type": "string" },
+        "room": { "type": "string" },
+        "type": { "type": "string", "enum": ["Trimestriel", "Annuel", "Blanc", "Concours"] }
+      },
+      "required": ["id", "name", "date", "className", "subject"]
+    },
+    "InventoryItem": {
+      "title": "Inventory Item",
+      "description": "A book, uniform, or supply in stock",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string", "enum": ["Livre", "Uniforme", "Fourniture", "Autre"] },
+        "quantity": { "type": "number" },
+        "unitPrice": { "type": "number" },
+        "costPrice": { "type": "number" },
+        "minStock": { "type": "number" }
+      },
+      "required": ["id", "name", "category", "quantity"]
+    },
+    "InventoryTransaction": {
+      "title": "Inventory Transaction",
+      "description": "A movement of stock (sale, loan, restock)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "itemId": { "type": "string" },
+        "type": { "type": "string", "enum": ["Achat", "Vente", "Prêt", "Retour", "Ajustement", "Don"] },
+        "quantity": { "type": "number" },
+        "studentId": { "type": "string" },
+        "date": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "itemId", "type", "quantity", "date"]
+    }
+  },
+  "firestore": {
+    "/schools/{schoolId}/config/info": {
+      "schema": "SchoolInfo",
+      "description": "Global school configuration"
+    },
+    "/schools/{schoolId}/students/{studentId}": {
+      "schema": "Student",
+      "description": "Student records"
+    },
+    "/schools/{schoolId}/classes/{classId}": {
+      "schema": "Class",
+      "description": "Class definitions"
+    },
+    "/schools/{schoolId}/grades/{gradeId}": {
+      "schema": "Grade",
+      "description": "Student grades"
+    },
+    "/schools/{schoolId}/bulletins/{bulletinId}": {
+      "schema": "Bulletin",
+      "description": "Termly bulletin summaries"
+    },
+    "/schools/{schoolId}/teachers/{teacherId}": {
+      "schema": "Teacher",
+      "description": "Staff and teachers"
+    },
+    "/schools/{schoolId}/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Payment records"
+    },
+    "/schools/{schoolId}/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "Expense records"
+    },
+    "/schools/{schoolId}/messages/{messageId}": {
+      "schema": "SMSMessage",
+      "description": "SMS history"
+    },
+    "/schools/{schoolId}/subscription_requests/{requestId}": {
+      "schema": "SubscriptionRequest",
+      "description": "Manual payment verification requests"
+    },
+    "/schools/{schoolId}/schedule/{entryId}": {
+      "schema": "ScheduleEntry",
+      "description": "School timetable entries"
+    },
+    "/schools/{schoolId}/pre_registrations/{id}": {
+      "schema": "PreRegistration",
+      "description": "Interested prospects or pre-enrolled students"
+    },
+    "/schools/{schoolId}/attendance/{attendanceId}": {
+      "schema": "AttendanceRecord",
+      "description": "Daily attendance logs"
+    },
+    "/schools/{schoolId}/exams/{examId}": {
+      "schema": "Exam",
+      "description": "Scheduled exams"
+    },
+    "/schools/{schoolId}/inventory/{itemId}": {
+      "schema": "InventoryItem",
+      "description": "School supplies and books stock"
+    },
+    "/schools/{schoolId}/inventory_transactions/{transactionId}": {
+      "schema": "InventoryTransaction",
+      "description": "Stock movement logs"
+    },
+    "/test/{docId}": {
+      "schema": {
+        "title": "Connectivity Test",
+        "description": "Used for app connectivity health checks",
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" }
+        }
+      },
+      "description": "System diagnostic collection"
+    }
+  }
+}
