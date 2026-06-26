@@ -3213,130 +3213,705 @@ const ClassicTemplate = ({ student, studentGrades, configs, schoolInfo, term, bu
   bulletins: Bulletin[],
   onUpdateBulletin?: (data: Partial<Bulletin>) => void
 }) => {
-  const { subjectAverages, overallAverage, totalCoefficients, weightedPointsTotal, decision } = calculateDetailedAverages(studentGrades, configs);
-  
+  const [editMode, setEditMode] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
+
   const savedBulletin = bulletins.find(b => b.studentId === student.id && b.term === term);
-  const averageValue = savedBulletin ? savedBulletin.average : overallAverage;
-  const average = averageValue.toFixed(2);
-  const rank = savedBulletin ? savedBulletin.rank : "N/A";
-  const observations = savedBulletin ? savedBulletin.comment : "";
+  
+  // State for all the Malian report card data
+  const [malianData, setMalianData] = useState(() => {
+    if (savedBulletin && (savedBulletin as any).malianData) {
+      return (savedBulletin as any).malianData;
+    }
+    
+    // Group grades by subject to calculate averages
+    const subjects = configs.map(config => {
+      const sGrades = studentGrades.filter(g => g.subject === config.name);
+      const examGrades = sGrades.filter(g => g.type === 'exam');
+      const classGrades = sGrades.filter(g => g.type !== 'exam');
+      
+      let moyClasse = 10;
+      if (classGrades.length > 0) {
+        moyClasse = classGrades.reduce((acc, g) => acc + (g.score / g.maxScore) * 20, 0) / classGrades.length;
+      } else if (sGrades.length > 0) {
+        moyClasse = sGrades.reduce((acc, g) => acc + (g.score / g.maxScore) * 20, 0) / sGrades.length;
+      }
+      
+      let noteCompo = moyClasse * 2; // Default compo to Class average out of 40
+      if (examGrades.length > 0) {
+        noteCompo = (examGrades[0].score / examGrades[0].maxScore) * 40;
+      }
+      
+      const moyGen = (moyClasse + noteCompo) / 3;
+      const coef = config.coefficient || 2;
+      const moyCoef = moyGen * coef;
+      
+      let observ = "Passable";
+      if (moyGen >= 16) observ = "Excellent";
+      else if (moyGen >= 14) observ = "Très Bien";
+      else if (moyGen >= 12) observ = "Bien";
+      else if (moyGen >= 10) observ = "Passable";
+      else observ = "Insuffisant";
+      
+      return {
+        name: config.name,
+        moyClasse: parseFloat(moyClasse.toFixed(2)),
+        noteCompo: parseFloat(noteCompo.toFixed(2)),
+        moyGen: parseFloat(moyGen.toFixed(2)),
+        coef,
+        moyCoef: parseFloat(moyCoef.toFixed(2)),
+        observ
+      };
+    });
+    
+    const totalCoef = subjects.reduce((acc, s) => acc + s.coef, 0);
+    const totalMoyCoef = subjects.reduce((acc, s) => acc + s.moyCoef, 0);
+    const average = totalCoef > 0 ? totalMoyCoef / totalCoef : 0;
+    
+    // Split name into Nom and Prénoms
+    const nameParts = student.name.trim().split(/\s+/);
+    const lastName = nameParts[0] || "";
+    const firstNames = nameParts.slice(1).join(" ") || "";
+    
+    return {
+      minEdu: "MINISTÈRE DE L'ÉDUCATION NATIONALE",
+      academy: "AE/DOUENTZA",
+      schoolName: schoolInfo.name || "Lycée Amayowo de Bandiagara (LAMAYO)",
+      bpTel: schoolInfo.phone ? `Tél: ${schoolInfo.phone}` : "BP: 35 Tél: 66854563 / 76225342",
+      schoolYear: "2024-2025",
+      studentLastName: lastName,
+      studentFirstName: firstNames,
+      studentClass: student.class,
+      effectif: 32,
+      term: term,
+      average: parseFloat(average.toFixed(2)),
+      rank: savedBulletin?.rank || "12ème",
+      firstAverage: 14.50,
+      lastAverage: 6.20,
+      classAverage: 10.45,
+      decision: average >= 10 ? "Admis" : "Redouble",
+      proviseur: schoolInfo.director || "Mamoudou SAGARA",
+      date: new Date().toLocaleDateString('fr-FR'),
+      subjects
+    };
+  });
+
+  // Re-calculate the overall totals and student average whenever subjects list changes
+  const updateSubjectsTotals = (newSubjects: any[]) => {
+    const totalCoef = newSubjects.reduce((acc, s) => acc + s.coef, 0);
+    const totalMoyCoef = newSubjects.reduce((acc, s) => acc + s.moyCoef, 0);
+    const average = totalCoef > 0 ? totalMoyCoef / totalCoef : 0;
+    
+    setMalianData(prev => ({
+      ...prev,
+      subjects: newSubjects,
+      average: parseFloat(average.toFixed(2)),
+      decision: average >= 10 ? "Admis" : "Redouble"
+    }));
+    setHasChanges(true);
+  };
+
+  // Change individual cell values
+  const handleCellChange = (index: number, field: string, value: any) => {
+    const updatedSubjects = [...malianData.subjects];
+    const sub = { ...updatedSubjects[index] };
+    
+    if (field === 'moyClasse') {
+      sub.moyClasse = Math.min(20, Math.max(0, parseFloat(value) || 0));
+      sub.moyGen = parseFloat(((sub.moyClasse + sub.noteCompo) / 3).toFixed(2));
+      sub.moyCoef = parseFloat((sub.moyGen * sub.coef).toFixed(2));
+    } else if (field === 'noteCompo') {
+      sub.noteCompo = Math.min(40, Math.max(0, parseFloat(value) || 0));
+      sub.moyGen = parseFloat(((sub.moyClasse + sub.noteCompo) / 3).toFixed(2));
+      sub.moyCoef = parseFloat((sub.moyGen * sub.coef).toFixed(2));
+    } else if (field === 'coef') {
+      sub.coef = Math.max(1, parseInt(value) || 1);
+      sub.moyCoef = parseFloat((sub.moyGen * sub.coef).toFixed(2));
+    } else if (field === 'observ') {
+      sub.observ = value;
+    }
+    
+    // Auto appreciation if empty or default
+    if (field !== 'observ' || !value) {
+      if (sub.moyGen >= 16) sub.observ = "Excellent";
+      else if (sub.moyGen >= 14) sub.observ = "Très Bien";
+      else if (sub.moyGen >= 12) sub.observ = "Bien";
+      else if (sub.moyGen >= 10) sub.observ = "Passable";
+      else sub.observ = "Insuffisant";
+    }
+    
+    updatedSubjects[index] = sub;
+    updateSubjectsTotals(updatedSubjects);
+  };
+
+  // Import from local Excel sheet for this single student
+  const handleLocalExcelImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const bstr = event.target?.result;
+        const workbook = XLSX.read(bstr, { type: 'binary' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const data = XLSX.utils.sheet_to_json(worksheet) as any[];
+        
+        if (data.length === 0) {
+          alert("Le fichier Excel est vide.");
+          return;
+        }
+        
+        const updatedSubjects = malianData.subjects.map(sub => {
+          const row = data.find(r => {
+            const rSub = r['Matière'] || r['Matiere'] || r['Subject'] || r['Disciplines'] || '';
+            return rSub.toString().toLowerCase().includes(sub.name.toLowerCase()) || 
+                   sub.name.toLowerCase().includes(rSub.toString().toLowerCase());
+          });
+          
+          if (row) {
+            const moyClasseVal = row['Moy. Classe'] || row['Moyenne Classe'] || row['Moy Classe'] || row['Classe'] || sub.moyClasse;
+            const noteCompoVal = row['Note Compo/40'] || row['Note Compo'] || row['Compo/40'] || row['Compo'] || sub.noteCompo;
+            const coefVal = row['Coef'] || row['Coefficient'] || sub.coef;
+            const observVal = row['Observations'] || row['Observation'] || row['Appréciation'] || row['Appreciation'];
+            
+            const moyClasse = parseFloat(moyClasseVal.toString());
+            const noteCompo = parseFloat(noteCompoVal.toString());
+            const coef = parseFloat(coefVal.toString());
+            const moyGen = (moyClasse + noteCompo) / 3;
+            const moyCoef = moyGen * coef;
+            
+            let observ = observVal ? observVal.toString() : "";
+            if (!observ) {
+              if (moyGen >= 16) observ = "Excellent";
+              else if (moyGen >= 14) observ = "Très Bien";
+              else if (moyGen >= 12) observ = "Bien";
+              else if (moyGen >= 10) observ = "Passable";
+              else observ = "Insuffisant";
+            }
+            
+            return {
+              ...sub,
+              moyClasse: parseFloat(moyClasse.toFixed(2)),
+              noteCompo: parseFloat(noteCompo.toFixed(2)),
+              moyGen: parseFloat(moyGen.toFixed(2)),
+              coef,
+              moyCoef: parseFloat(moyCoef.toFixed(2)),
+              observ
+            };
+          }
+          return sub;
+        });
+        
+        const totalCoef = updatedSubjects.reduce((acc, s) => acc + s.coef, 0);
+        const totalMoyCoef = updatedSubjects.reduce((acc, s) => acc + s.moyCoef, 0);
+        const average = totalCoef > 0 ? totalMoyCoef / totalCoef : 0;
+        
+        setMalianData(prev => ({
+          ...prev,
+          subjects: updatedSubjects,
+          average: parseFloat(average.toFixed(2)),
+          decision: average >= 10 ? "Admis" : "Redouble"
+        }));
+        setHasChanges(true);
+        alert("Les notes de cet élève ont été importées avec succès !");
+      } catch (err) {
+        console.error(err);
+        alert("Erreur lors de la lecture du fichier Excel. Assurez-vous d'avoir les colonnes : Matière, Moy. Classe, Note Compo/40.");
+      }
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = '';
+  };
+
+  const handleSaveData = async () => {
+    setIsSaving(true);
+    try {
+      if (onUpdateBulletin) {
+        await onUpdateBulletin({
+          studentId: student.id,
+          term,
+          average: malianData.average,
+          rank: malianData.rank,
+          comment: malianData.subjects.map(s => `${s.name}: ${s.moyGen}`).join(', '),
+          malianData: malianData // Deep persistent object
+        } as any);
+        setHasChanges(false);
+        setEditMode(false);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erreur lors de la sauvegarde du bulletin.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Helper values
+  const totalCoefficients = malianData.subjects.reduce((acc, s) => acc + s.coef, 0);
+  const weightedPointsTotal = malianData.subjects.reduce((acc, s) => acc + s.moyCoef, 0);
 
   return (
-    <div className="bg-white p-10 print:p-0 print:shadow-none min-h-[29.7cm] flex flex-col">
-      <BulletinHeader schoolInfo={schoolInfo} term={term} />
-      
-      <div className="flex justify-between items-end mb-6">
-        <div>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Identité de l'Élève</p>
-          <p className="text-xl font-black text-slate-900 uppercase">{student.name}</p>
-          <p className="text-sm font-bold text-slate-600">Matricule : {student.matricule}</p>
+    <div className="bg-white p-6 md:p-8 min-h-[29.7cm] flex flex-col font-sans select-text border border-slate-200">
+      {/* Control Panel (Hidden during Printing) */}
+      <div className="mb-6 p-4 bg-slate-50 border border-slate-200 rounded-3xl flex flex-wrap justify-between items-center gap-4 print:hidden">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setEditMode(!editMode)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-black uppercase transition-all ${
+              editMode 
+                ? 'bg-orange-600 text-white shadow-md shadow-orange-500/20' 
+                : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+            }`}
+          >
+            <Pencil className="w-4 h-4" />
+            {editMode ? "Quitter le Mode Saisie" : "Saisir / Modifier les Notes"}
+          </button>
+          
+          <label className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-2xl text-xs font-black uppercase cursor-pointer transition-all">
+            <FileUp className="w-4 h-4 text-indigo-500" />
+            Excel Individuel
+            <input 
+              type="file" 
+              accept=".xlsx, .xls" 
+              className="hidden" 
+              onChange={handleLocalExcelImport} 
+            />
+          </label>
         </div>
-        <div className="text-right">
-          <p className="text-sm font-bold text-slate-900">Classe : {student.class}</p>
-          <p className="text-xs font-medium text-slate-500">Année Scolaire : 2024-2025</p>
-          <p className="text-sm font-black text-blue-600">Rang : {rank}</p>
+
+        <div className="flex items-center gap-4">
+          {hasChanges && (
+            <span className="text-[10px] bg-amber-100 text-amber-700 px-3 py-1 rounded-full font-black uppercase tracking-wider animate-pulse">
+              Modifications non enregistrées
+            </span>
+          )}
+          
+          <button
+            onClick={handleSaveData}
+            disabled={isSaving || !hasChanges}
+            className={`flex items-center gap-2 px-6 py-2 rounded-2xl text-xs font-black uppercase transition-all shadow-md ${
+              hasChanges 
+                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/10' 
+                : 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'
+            }`}
+          >
+            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Enregistrer
+          </button>
         </div>
       </div>
 
-      <table className="w-full border-collapse border-2 border-slate-900 text-sm mb-8">
-        <thead>
-          <tr className="bg-slate-50">
-            <th className="border-2 border-slate-900 p-3 text-left uppercase font-black text-xs">Disciplines</th>
-            <th className="border-2 border-slate-900 p-3 text-center uppercase font-black text-xs w-16">Coeff</th>
-            <th className="border-2 border-slate-900 p-3 text-center uppercase font-black text-xs w-24">Note / 20</th>
-            <th className="border-2 border-slate-900 p-3 text-center uppercase font-black text-xs w-24">Pondérée</th>
-            <th className="border-2 border-slate-900 p-3 text-left uppercase font-black text-xs">Appréciations</th>
-          </tr>
-        </thead>
-        <tbody>
-          {subjectAverages.map((g, idx) => (
-            <tr key={idx}>
-              <td className="border-2 border-slate-900 p-3 font-bold uppercase">{g.name}</td>
-              <td className="border-2 border-slate-900 p-3 text-center font-bold">{g.coef}</td>
-              <td className="border-2 border-slate-900 p-3 text-center font-bold">{g.average.toFixed(1)}</td>
-              <td className="border-2 border-slate-900 p-3 text-center font-bold">{g.points.toFixed(2)}</td>
-              <td className="border-2 border-slate-900 p-3 italic text-slate-500 text-xs">
-                {g.average >= 16 ? "Excellent" : g.average >= 14 ? "Très bien" : g.average >= 12 ? "Bien" : g.average >= 10 ? "Passable" : "Insuffisant"}
-              </td>
-            </tr>
-          ))}
-          <tr className="bg-slate-900 text-white">
-            <td className="border-2 border-slate-900 p-4 font-black uppercase text-right" colSpan={3}>Moyenne Générale</td>
-            <td className="border-2 border-slate-900 p-4 text-center font-black text-xl">{average}</td>
-            <td className="border-2 border-slate-900 p-4 font-black uppercase text-center">
-               {savedBulletin ? (averageValue >= 10 ? 'Admis' : 'Refusé') : decision}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      {/* Observation Editable Area */}
-      <div className="border-2 border-slate-900 p-4 mb-8">
-        <h4 className="text-[10px] font-black uppercase mb-2 text-slate-500 tracking-widest">Observations du Directeur / Titulaire</h4>
-        <textarea 
-          placeholder="Entrez vos observations ici (ex: Travail satisfaisant, continuez ainsi...)"
-          className="w-full bg-slate-50 border-none focus:ring-0 p-2 text-sm italic min-h-[80px] resize-none print:bg-transparent print:p-0"
-          value={observations}
-          onChange={(e) => onUpdateBulletin?.({ studentId: student.id, term, comment: e.target.value })}
-        />
-        <div className="flex justify-between mt-4">
-           {!savedBulletin && (
-             <p className="text-[9px] text-orange-500 font-bold italic print:hidden">* Ces observations seront sauvegardées sur le profil de l'élève.</p>
-           )}
-           {onUpdateBulletin && (
-             <div className="flex items-center gap-4 print:hidden">
-                <button 
-                  onClick={() => {
-                    const msg = `Bonjour, voici les résultats de ${student.name} pour le ${term} : Moyenne ${average}/20, Rang ${rank}. Observations : ${observations}`;
-                    if (student.parentPhone) window.open(getWhatsAppLink(student.parentPhone, msg), '_blank');
-                    else alert("Numéro du parent non renseigné.");
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 text-white rounded-full text-[10px] font-black uppercase hover:bg-emerald-700 transition-all shadow-sm"
-                >
-                  <MessageCircle className="w-3 h-3" />
-                  WhatsApp
-                </button>
-                <button 
-                  onClick={() => {
-                    const subject = `Bulletin Scolaire - ${student.name} - ${term}`;
-                    const body = `Bonjour,\n\nNous vous transmettons les résultats scolaires de votre enfant ${student.name} pour le ${term} :\n- Moyenne : ${average}/20\n- Rang : ${rank}\n- Observations : ${observations}\n\nCordialement,\nLa Direction de ${schoolInfo?.name || "l'école"}`;
-                    if (student.parentEmail) sendEmail(student.parentEmail, subject, body);
-                    else alert("Email du parent non renseigné.");
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1 bg-blue-600 text-white rounded-full text-[10px] font-black uppercase hover:bg-blue-700 transition-all shadow-sm"
-                >
-                  <Mail className="w-3 h-3" />
-                  Email
-                </button>
+      {/* Main Official Document Container */}
+      <div className="border-4 border-double border-slate-900 p-8 flex-1 flex flex-col bg-white relative">
+        
+        {/* Document Header */}
+        <div className="grid grid-cols-3 gap-4 items-start mb-6 pb-4 border-b border-slate-200">
+          
+          {/* Left Column (Administrative details) */}
+          <div className="text-[9px] font-bold text-slate-800 space-y-1">
+            {editMode ? (
+              <div className="space-y-1">
                 <input 
-                  type="number"
-                  step="0.01"
-                  placeholder="Moyenne manuelle"
-                  className="w-24 text-xs p-1 border rounded"
-                  value={averageValue}
-                  onChange={(e) => onUpdateBulletin({ studentId: student.id, term, average: parseFloat(e.target.value) })}
+                  type="text" 
+                  value={malianData.minEdu} 
+                  onChange={(e) => { setMalianData({...malianData, minEdu: e.target.value}); setHasChanges(true); }}
+                  className="w-full text-[9px] font-bold border border-slate-300 rounded p-1 bg-white focus:outline-none"
                 />
                 <input 
-                  type="text"
-                  placeholder="Rang"
-                  className="w-20 text-xs p-1 border rounded"
-                  value={rank}
-                  onChange={(e) => onUpdateBulletin({ studentId: student.id, term, rank: e.target.value })}
+                  type="text" 
+                  value={malianData.academy} 
+                  onChange={(e) => { setMalianData({...malianData, academy: e.target.value}); setHasChanges(true); }}
+                  className="w-full text-[9px] font-bold border border-slate-300 rounded p-1 bg-white focus:outline-none"
                 />
-             </div>
-           )}
+                <input 
+                  type="text" 
+                  value={malianData.schoolName} 
+                  onChange={(e) => { setMalianData({...malianData, schoolName: e.target.value}); setHasChanges(true); }}
+                  className="w-full text-[9px] font-bold border border-slate-300 rounded p-1 bg-white focus:outline-none"
+                />
+                <input 
+                  type="text" 
+                  value={malianData.bpTel} 
+                  onChange={(e) => { setMalianData({...malianData, bpTel: e.target.value}); setHasChanges(true); }}
+                  className="w-full text-[9px] font-bold border border-slate-300 rounded p-1 bg-white focus:outline-none"
+                />
+              </div>
+            ) : (
+              <>
+                <p className="uppercase">{malianData.minEdu}</p>
+                <p className="text-slate-400 font-extrabold">*************</p>
+                <p className="uppercase">{malianData.academy}</p>
+                <p className="text-slate-400 font-extrabold">*************</p>
+                <p className="uppercase font-black text-slate-900">{malianData.schoolName}</p>
+                <p className="text-slate-500 font-semibold">{malianData.bpTel}</p>
+              </>
+            )}
+          </div>
+          
+          {/* Center Column (Administrative Seal) */}
+          <div className="flex flex-col items-center justify-center text-center">
+            {/* Visual Seal Container */}
+            <div className="w-20 h-20 rounded-full border border-double border-blue-500/30 flex flex-col items-center justify-center text-[6px] font-black uppercase text-blue-600/30 rotate-[-8deg] leading-tight select-none pointer-events-none p-1">
+              <span>RÉPUBLIQUE DU MALI</span>
+              <div className="w-10 h-[1px] bg-blue-400/30 my-0.5"></div>
+              <span className="font-extrabold text-[5px] truncate max-w-[70px]">{malianData.schoolName}</span>
+              <div className="w-10 h-[1px] bg-blue-400/30 my-0.5"></div>
+              <span>Le Directoire</span>
+            </div>
+          </div>
+          
+          {/* Right Column (State Mottos) */}
+          <div className="text-right text-[9px] font-bold text-slate-800 space-y-1">
+            <p className="uppercase text-slate-900 font-black">RÉPUBLIQUE DU MALI</p>
+            <p className="italic text-slate-500 text-[8px]">Un Peuple - Un But - Une Foi</p>
+            <p className="text-slate-400 font-extrabold">------------------</p>
+            {editMode ? (
+              <div className="flex items-center justify-end gap-1 text-[9px] font-bold">
+                <span>Année :</span>
+                <input 
+                  type="text" 
+                  value={malianData.schoolYear} 
+                  onChange={(e) => { setMalianData({...malianData, schoolYear: e.target.value}); setHasChanges(true); }}
+                  className="w-24 text-[9px] font-bold border border-slate-300 rounded p-1 bg-white text-right"
+                />
+              </div>
+            ) : (
+              <p className="font-extrabold text-slate-900">Année Scolaire : {malianData.schoolYear}</p>
+            )}
+          </div>
         </div>
-      </div>
 
-      <div className="grid grid-cols-2 gap-12 mt-auto pt-12">
-        <div className="text-center border-t border-slate-200 pt-4">
-          <p className="text-xs font-bold uppercase underline mb-20 text-slate-900">Le Directeur</p>
-          <p className="text-[10px] font-bold text-slate-400 italic">(Signature et Cachet)</p>
+        {/* Big centered title */}
+        <div className="text-center my-6">
+          <div className="inline-block border-2 border-slate-900 px-8 py-3 bg-slate-50">
+            <h1 className="text-lg md:text-xl font-black text-slate-950 uppercase tracking-widest leading-none">
+              BULLETIN DE NOTES DU {malianData.term}
+            </h1>
+          </div>
         </div>
-        <div className="text-center border-t border-slate-200 pt-4">
-          <p className="text-xs font-bold uppercase underline mb-20 text-slate-900">Le Parent</p>
-          <div className="border-t border-dashed border-slate-300 w-32 mx-auto"></div>
+
+        {/* Student identity details block */}
+        <div className="border border-slate-900 grid grid-cols-2 gap-px bg-slate-900 text-xs font-bold uppercase mb-6 shadow-sm">
+          
+          <div className="bg-white p-3 flex justify-between items-center">
+            <span className="text-[10px] text-slate-400 font-black tracking-wider uppercase">Nom :</span>
+            {editMode ? (
+              <input 
+                type="text" 
+                value={malianData.studentLastName} 
+                onChange={(e) => { setMalianData({...malianData, studentLastName: e.target.value}); setHasChanges(true); }}
+                className="text-xs font-bold border border-slate-300 rounded p-1 w-2/3 uppercase text-slate-900 bg-white"
+              />
+            ) : (
+              <span className="font-black text-slate-955 text-sm tracking-wide">{malianData.studentLastName}</span>
+            )}
+          </div>
+
+          <div className="bg-white p-3 flex justify-between items-center">
+            <span className="text-[10px] text-slate-400 font-black tracking-wider uppercase">Prénoms :</span>
+            {editMode ? (
+              <input 
+                type="text" 
+                value={malianData.studentFirstName} 
+                onChange={(e) => { setMalianData({...malianData, studentFirstName: e.target.value}); setHasChanges(true); }}
+                className="text-xs font-bold border border-slate-300 rounded p-1 w-2/3 text-slate-900 bg-white"
+              />
+            ) : (
+              <span className="font-bold text-slate-800 text-sm">{malianData.studentFirstName}</span>
+            )}
+          </div>
+
+          <div className="bg-white p-3 flex justify-between items-center">
+            <span className="text-[10px] text-slate-400 font-black tracking-wider uppercase">Classe :</span>
+            {editMode ? (
+              <input 
+                type="text" 
+                value={malianData.studentClass} 
+                onChange={(e) => { setMalianData({...malianData, studentClass: e.target.value}); setHasChanges(true); }}
+                className="text-xs font-bold border border-slate-300 rounded p-1 w-2/3 text-slate-900 bg-white"
+              />
+            ) : (
+              <span className="font-bold text-slate-900 text-sm">{malianData.studentClass}</span>
+            )}
+          </div>
+
+          <div className="bg-white p-3 flex justify-between items-center">
+            <span className="text-[10px] text-slate-400 font-black tracking-wider uppercase">Effectif :</span>
+            {editMode ? (
+              <input 
+                type="number" 
+                value={malianData.effectif} 
+                onChange={(e) => { setMalianData({...malianData, effectif: parseInt(e.target.value) || 0}); setHasChanges(true); }}
+                className="text-xs font-bold border border-slate-300 rounded p-1 w-1/3 text-slate-900 bg-white"
+              />
+            ) : (
+              <span className="font-bold text-slate-800 text-sm">{malianData.effectif} élèves</span>
+            )}
+          </div>
         </div>
+
+        {/* Grades and Subject Table */}
+        <div className="flex-1 overflow-x-auto">
+          <table className="w-full border-collapse border-2 border-slate-900 text-xs mb-6 font-medium">
+            <thead>
+              <tr className="bg-slate-100 text-slate-900 font-black text-center border-b-2 border-slate-900">
+                <th className="border-r border-slate-900 p-2 text-left uppercase w-1/4">MATIÈRES</th>
+                <th className="border-r border-slate-900 p-2 uppercase w-16">MOY. CLASSE</th>
+                <th className="border-r border-slate-900 p-2 uppercase w-16">NOTE COMPO/40</th>
+                <th className="border-r border-slate-900 p-2 uppercase w-20 bg-slate-200/50">MOY. GÉN.</th>
+                <th className="border-r border-slate-900 p-2 uppercase w-12">COEF</th>
+                <th className="border-r border-slate-900 p-2 uppercase w-20">MOY. COEF</th>
+                <th className="p-2 text-left uppercase">OBSERVATIONS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {malianData.subjects.map((s, idx) => (
+                <tr key={idx} className="border-b border-slate-900 hover:bg-slate-50/50 transition-colors">
+                  
+                  {/* Subject Name */}
+                  <td className="border-r border-slate-900 p-2 font-black uppercase text-slate-900">{s.name}</td>
+                  
+                  {/* Class Mark */}
+                  <td className="border-r border-slate-900 p-2 text-center">
+                    {editMode ? (
+                      <input 
+                        type="number" 
+                        step="0.01" 
+                        value={s.moyClasse} 
+                        onChange={(e) => handleCellChange(idx, 'moyClasse', e.target.value)}
+                        className="w-14 text-center font-bold p-1 border rounded"
+                      />
+                    ) : (
+                      <span className="font-bold text-slate-800">{s.moyClasse.toFixed(2)}</span>
+                    )}
+                  </td>
+                  
+                  {/* Composition /40 */}
+                  <td className="border-r border-slate-900 p-2 text-center">
+                    {editMode ? (
+                      <input 
+                        type="number" 
+                        step="0.01" 
+                        value={s.noteCompo} 
+                        onChange={(e) => handleCellChange(idx, 'noteCompo', e.target.value)}
+                        className="w-14 text-center font-bold p-1 border rounded"
+                      />
+                    ) : (
+                      <span className="font-bold text-slate-800">{s.noteCompo.toFixed(2)}</span>
+                    )}
+                  </td>
+                  
+                  {/* General Average */}
+                  <td className="border-r border-slate-900 p-2 text-center bg-slate-50 font-black text-slate-900">
+                    {s.moyGen.toFixed(2)}
+                  </td>
+                  
+                  {/* Coefficient */}
+                  <td className="border-r border-slate-900 p-2 text-center">
+                    {editMode ? (
+                      <input 
+                        type="number" 
+                        value={s.coef} 
+                        onChange={(e) => handleCellChange(idx, 'coef', e.target.value)}
+                        className="w-10 text-center font-bold p-1 border rounded"
+                      />
+                    ) : (
+                      <span className="font-bold text-slate-800">{s.coef}</span>
+                    )}
+                  </td>
+                  
+                  {/* Weighted Average */}
+                  <td className="border-r border-slate-900 p-2 text-center font-black text-slate-900">
+                    {s.moyCoef.toFixed(2)}
+                  </td>
+                  
+                  {/* Observations */}
+                  <td className="p-2 italic text-slate-700">
+                    {editMode ? (
+                      <input 
+                        type="text" 
+                        value={s.observ} 
+                        onChange={(e) => handleCellChange(idx, 'observ', e.target.value)}
+                        className="w-full font-medium italic p-1 border rounded text-slate-800"
+                        placeholder="Observation..."
+                      />
+                    ) : (
+                      <span>{s.observ}</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              
+              {/* Summary Totals Row */}
+              <tr className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-900">
+                <td className="border-r border-slate-900 p-3 text-right uppercase" colSpan={4}>
+                  TOTAUX :
+                </td>
+                <td className="border-r border-slate-900 p-3 text-center text-sm">
+                  {totalCoefficients}
+                </td>
+                <td className="border-r border-slate-900 p-3 text-center text-sm">
+                  {weightedPointsTotal.toFixed(2)}
+                </td>
+                <td className="p-3 italic text-slate-400 text-[10px]">
+                  Fait à Bandiagara par SchoolCore
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Overall Statistics Summary Card */}
+        <div className="border border-slate-900 p-4 bg-slate-50/50 mb-6 font-bold text-xs uppercase grid grid-cols-1 md:grid-cols-2 gap-6 shadow-sm">
+          
+          <div className="space-y-3">
+            <div className="flex justify-between items-center pb-2 border-b border-dashed border-slate-300">
+              <span className="text-[10px] text-slate-500 font-black">MOYENNE DU 1er DE LA CLASSE :</span>
+              {editMode ? (
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  value={malianData.firstAverage} 
+                  onChange={(e) => { setMalianData({...malianData, firstAverage: parseFloat(e.target.value) || 0}); setHasChanges(true); }}
+                  className="w-20 text-right p-1 border rounded"
+                />
+              ) : (
+                <span className="font-black text-slate-900">{malianData.firstAverage.toFixed(2)}/20</span>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center pb-2 border-b border-dashed border-slate-300">
+              <span className="text-[10px] text-slate-500 font-black">MOYENNE DU DERNIER DE LA CLASSE :</span>
+              {editMode ? (
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  value={malianData.lastAverage} 
+                  onChange={(e) => { setMalianData({...malianData, lastAverage: parseFloat(e.target.value) || 0}); setHasChanges(true); }}
+                  className="w-20 text-right p-1 border rounded"
+                />
+              ) : (
+                <span className="font-black text-slate-900">{malianData.lastAverage.toFixed(2)}/20</span>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center pb-2 border-b border-dashed border-slate-300">
+              <span className="text-[10px] text-slate-500 font-black">MOYENNE DE LA CLASSE :</span>
+              {editMode ? (
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  value={malianData.classAverage} 
+                  onChange={(e) => { setMalianData({...malianData, classAverage: parseFloat(e.target.value) || 0}); setHasChanges(true); }}
+                  className="w-20 text-right p-1 border rounded"
+                />
+              ) : (
+                <span className="font-black text-slate-900">{malianData.classAverage.toFixed(2)}/20</span>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex justify-between items-center pb-2 border-b border-dashed border-slate-300">
+              <span className="text-[10px] text-slate-500 font-black">RANG DE L'ÉLÈVE :</span>
+              {editMode ? (
+                <input 
+                  type="text" 
+                  value={malianData.rank} 
+                  onChange={(e) => { setMalianData({...malianData, rank: e.target.value}); setHasChanges(true); }}
+                  className="w-24 text-right p-1 border rounded text-xs font-black uppercase text-blue-600"
+                />
+              ) : (
+                <span className="font-black text-blue-700 bg-blue-50 border border-blue-100 px-3 py-1 rounded-lg text-sm">{malianData.rank}</span>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center pb-2 border-b border-dashed border-slate-300">
+              <span className="text-[10px] text-slate-500 font-black text-base font-black">MOYENNE DE L'ÉLÈVE :</span>
+              <span className="font-black text-slate-950 text-base underline decoration-double decoration-slate-900">
+                {malianData.average.toFixed(2)} / 20
+              </span>
+            </div>
+
+            <div className="flex justify-between items-center pb-2 border-b border-dashed border-slate-300">
+              <span className="text-[10px] text-slate-500 font-black">DÉCISION DU CONSEIL DES PROFESSEURS :</span>
+              {editMode ? (
+                <select 
+                  value={malianData.decision} 
+                  onChange={(e) => { setMalianData({...malianData, decision: e.target.value}); setHasChanges(true); }}
+                  className="w-32 p-1 border rounded bg-white text-right font-bold text-xs"
+                >
+                  <option value="Admis">Admis</option>
+                  <option value="Redouble">Redouble</option>
+                  <option value="Passe">Passe</option>
+                  <option value="Exclu">Exclu</option>
+                </select>
+              ) : (
+                <span className={`font-black tracking-wider uppercase px-2.5 py-1 rounded-lg text-[10px] ${
+                  malianData.decision === 'Admis' || malianData.decision === 'Passe'
+                    ? 'bg-emerald-50 border border-emerald-100 text-emerald-700' 
+                    : 'bg-rose-50 border border-rose-100 text-rose-700'
+                }`}>
+                  {malianData.decision}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Signatures & Footer Section */}
+        <div className="grid grid-cols-3 gap-6 mt-auto pt-8 items-start border-t border-slate-200">
+          
+          {/* Parent Signature Block */}
+          <div className="text-center">
+            <p className="text-[10px] font-black uppercase underline text-slate-900 mb-10">Visa des Parents</p>
+            <div className="border-b border-dashed border-slate-300 w-24 mx-auto"></div>
+          </div>
+          
+          {/* Blank column / spacing */}
+          <div></div>
+          
+          {/* Proviseur Signature Block with rubber stamp seal */}
+          <div className="text-center relative">
+            <div className="space-y-1 text-[10px]">
+              {editMode ? (
+                <div className="space-y-1 flex flex-col items-center">
+                  <input 
+                    type="text" 
+                    value={malianData.date} 
+                    onChange={(e) => { setMalianData({...malianData, date: e.target.value}); setHasChanges(true); }}
+                    className="w-full text-center border p-1 rounded font-semibold text-[10px]"
+                    placeholder="Bandiagara, le..."
+                  />
+                  <input 
+                    type="text" 
+                    value={malianData.proviseur} 
+                    onChange={(e) => { setMalianData({...malianData, proviseur: e.target.value}); setHasChanges(true); }}
+                    className="w-full text-center border p-1 rounded font-black text-[10px]"
+                    placeholder="Nom du Proviseur"
+                  />
+                </div>
+              ) : (
+                <>
+                  <p className="text-slate-700 font-semibold italic text-[9px]">Fait à Bandiagara, le {malianData.date}</p>
+                  <p className="font-black uppercase text-slate-950 underline tracking-widest pt-1">Le Proviseur</p>
+                </>
+              )}
+            </div>
+
+            {/* Space for physical signature and stamp */}
+            <div className="mt-4 border-2 border-dashed border-slate-300 rounded-2xl p-3 h-28 flex flex-col items-center justify-between text-center bg-slate-50/30 print:bg-transparent print:border-slate-400">
+              <span className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest leading-none">Emplacement Signature & Cachet</span>
+              {!editMode && malianData.proviseur && (
+                <span className="text-[9px] font-black uppercase text-slate-950 tracking-wider border-t border-dashed border-slate-200 pt-1.5 w-full">{malianData.proviseur}</span>
+              )}
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   );
@@ -4390,17 +4965,18 @@ const TeacherPortal = ({
 };
 // --- END TEACHER PORTAL COMPONENT ---
 
-export default function App() {
-  const safeConfirm = (message: string): boolean => {
-    try {
-      if (window.self !== window.top) {
-        return true;
-      }
-      return window.confirm(message);
-    } catch (e) {
+const safeConfirm = (message: string): boolean => {
+  try {
+    if (typeof window !== 'undefined' && window.self !== window.top) {
       return true;
     }
-  };
+    return window.confirm(message);
+  } catch (e) {
+    return true;
+  }
+};
+
+export default function App() {
 
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
